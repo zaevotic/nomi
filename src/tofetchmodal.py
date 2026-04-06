@@ -63,18 +63,18 @@ def get_working_model(persona):
         # (chat_id,)
     )
     rows = cursor.fetchall()
-    # full_history = [
-    #     {"role": role, "parts": [content]}
-    #     for chat_id, role, content, timestamp in rows
-    # ]
-    full_history = [
-        {"role": role, "parts": [{"text": content}]} 
-        for _, role, content, _ in rows
+    history = [
+        {"role": role, "parts": [content]}
+        for chat_id, role, content, timestamp in rows
     ]
+    # full_history = [
+    #     {"role": role, "parts": [{"text": content}]} 
+    #     for _, role, content, _ in rows
+    # ]
     for model_name in generate_models_list:
         try:
             test_model = genai.GenerativeModel(model_name, system_instruction=persona)
-            chat = test_model.start_chat(history=full_history)  # test availability
+            chat = test_model.start_chat(history=history)  # test availability
             response = chat.send_message("Hello")
             if response and hasattr(response, "candidates") and response.candidates:
                 return model_name  # first working model
