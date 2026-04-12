@@ -18,8 +18,8 @@ class Nomi:
         load_dotenv()
         self.console = Console()
         self.CONFIG_PATH = CONFIG_PATH
-        with open(self.CONFIG_PATH, "r") as f:
-            self.config = yaml.safe_load(f)
+        # Load config with UI defaults applied (from menu.get_config)
+        self.config = menu.get_config()
 
     # didn't use because shifted to separate terminal windows for chats
 
@@ -43,7 +43,7 @@ class Nomi:
 
 def migrate_chats():
     """
-    Making sure config is there
+    Making sure config is there and migrate json chats if chats dir exists.
     """
     if not os.path.exists(CONFIG_PATH):
         default_config = {
@@ -94,6 +94,20 @@ def migrate_chats():
     conn.commit()
     conn.close()
 
+def migrate_db():
+    """Apply incremental schema migrations."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # Add 'meta' JSON column to messages if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE messages ADD COLUMN meta JSON")
+        print("Added 'meta' column to messages table.")
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
+    conn.commit()
+    conn.close()
+
 if __name__ == "__main__":
 
     if not os.path.exists(DB_NAME):
@@ -123,6 +137,9 @@ if __name__ == "__main__":
         conn.close()
 
         migrate_chats()
+
+    # Ensure database schema is up-to-date
+    migrate_db()
 
     # Launch the main menu
     menu.main_menu()

@@ -1,42 +1,62 @@
-#literally, the brain# main.py
+# Core chat logic - no UI/console output. All presentation handled by ChatRenderer.
 
-import os, json, argparse, yaml, google.generativeai as genai, sqlite3, sys
-os.environ["GRPC_VERBOSITY"] = "NONE"
-os.environ["GRPC_TRACE"] = ""
-os.environ["ABSL_MIN_LOG_LEVEL"] = "3"
-from dotenv import load_dotenv
+import os, json, yaml, sqlite3
 from datetime import datetime, timezone
-from src.tofetchmodal import get_working_model
-from src.load_chat import choose_chat
-from src.utils.cli import get_user_input
-from rich.console import Console
-from rich.markdown import Markdown
+from typing import Optional
+from dotenv import load_dotenv
+from src.menu import edit_config
+
+# Import base provider class (lightweight)
+from src.providers import Provider
 
 load_dotenv()
-console = Console()
+
+
 class Brain:
+    """
+    Core chat logic - no UI/console output.
+    All presentation handled by ChatRenderer.
+
+    Uses a Provider abstraction to support multiple AI backends.
+    """
+
     def __init__(self, config, chat_name=None, chat_id=None):
         """
-        Data from config and .env so that the bot can work
+        Initialize brain with config and chat context.
+        Provider is NOT loaded yet - call initialize_provider() separately.
+
+        Args:
+            config: dict with persona, ui settings, provider, default_model, etc.
+            chat_name: name of chat
+            chat_id: database ID (provided or fetched from name)
         """
-        # experimental stuff
+        # DB setup
         self.conn = sqlite3.connect("nomi_memory.db")
         self.cursor = self.conn.cursor()
 
-        self.console = Console()
         self.config = config
-        self.api_key = os.getenv("GEMINI_API_KEY")
         self.persona = config.get("persona", "")
-        self.model_name = get_working_model(self.persona)
 
-        # --- Chat resolution logic ---
+        # UI settings
+        ui_config = config.get("ui", {})
+        self.show_timestamps = ui_config.get("show_timestamps", True)
+        self.animation_enabled = ui_config.get("animation_enabled", True)
+
+        # Provider setup (not initialized yet)
+        self.provider_name = config.get("provider", "gemini")
+        self.provider_class = self._get_provider_class(self.provider_name)
+        self.provider: Optional[Provider] = None
+        self.load_error: Optional[str] = None  # For initialization errors
+
+        # Model state
+        self.model_name = config.get("default_model")
+        self.chat_session = None  # Delegate to provider
+
+        # --- Chat resolution ---
         if chat_id is not None and chat_name is not None:
-            # Passed directly (e.g. from menu.py)
             self.chat_id = chat_id
             self.chat_name = chat_name
-
         elif "force_chat" in self.config:
-            # Config forces a specific chat
             self.cursor.execute("SELECT id FROM chats WHERE name=?", (self.config["force_chat"],))
             row = self.cursor.fetchone()
             if row:
@@ -47,51 +67,150 @@ class Brain:
                 self.conn.commit()
                 self.chat_id = self.cursor.lastrowid
                 self.chat_name = self.config["force_chat"]
-
         else:
-            # Interactive fallback
             self.chat_id, self.chat_name = self.choose_chat_db()
 
-        # --- Load existing history ---
+        # --- Load history (for display) ---
         self.cursor.execute(
             "SELECT role, content, timestamp FROM messages WHERE chat_id=? ORDER BY timestamp ASC",
             (self.chat_id,)
         )
         rows = self.cursor.fetchall()
         self.history = [
-            # {"role": role, "parts": [content], "timestamp": timestamp}
-            {"role": role, "parts": [content]}
+            {"role": role, "parts": [content], "timestamp": timestamp}
             for role, content, timestamp in rows
         ]
 
+        # --- Load history for model context ---
         self.cursor.execute(
-            "SELECT chat_id, role, content, timestamp FROM messages ORDER BY timestamp ASC",
-            # (self.chat_id,)
+            "SELECT role, content FROM messages WHERE chat_id=? ORDER BY timestamp ASC",
+            (self.chat_id,)
         )
         rows = self.cursor.fetchall()
-        # self.full_history = [
-        #     {"role": role, "parts": [content]}
-        #     for chat_id, role, content, timestamp in rows
-        # ]
         self.full_history = [
-            {"role": role, "parts": [{"text": content}]} 
-            for _, role, content, _ in rows
+            {"role": role, "parts": [{"text": content}]}
+            for role, content in rows
         ]
-        # --- API Setup ---
-        if not self.api_key:
-            self.console.print("[bold red]Error:[/] GEMINI_API_KEY not found in .env file.")
-            exit(1)
 
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(
-            self.model_name,
-            system_instruction=self.persona
-        )
-        self.chat_session = self.model.start_chat(
-            history=self.full_history
-        )
+        # If no model set, pick a working one for the provider
+        if not self.model_name:
+            if self.provider_name == "gemini":
+                # Lazy import to avoid loading tofetchmodal at module import
+                from src.tofetchmodal import get_working_model as get_gemini_working_model
+                self.model_name = get_gemini_working_model(self.persona)
+            else:
+                # For other providers, pick first from their list or None
+                provider_temp = self.provider_class(self.config, self.persona)
+                models = provider_temp.get_available_models()
+                self.model_name = models[0] if models else None
+
+    def _get_provider_class(self, provider_name: str) -> type:
+        """Lazy load provider class to avoid importing all dependencies at startup."""
+        if provider_name == "gemini":
+            from src.providers.gemini import GeminiProvider
+            return GeminiProvider
+        elif provider_name == "openrouter":
+            from src.providers.openrouter import OpenRouterProvider
+            return OpenRouterProvider
+        elif provider_name == "openai":
+            from src.providers.openai import OpenAIProvider
+            return OpenAIProvider
+        elif provider_name == "anthropic":
+            from src.providers.anthropic import AnthropicProvider
+            return AnthropicProvider
+        else:
+            from src.providers.gemini import GeminiProvider
+            return GeminiProvider
+
+    def initialize_provider(self):
+        """Initialize the selected provider with current config and history."""
+        # Create provider instance
+        self.provider = self.provider_class(self.config, self.persona)
+
+        # Provide history to provider for context
+        self.provider.full_history = self.full_history
+
+        # Set model name if we have one
+        if self.model_name:
+            self.provider.model_name = self.model_name
+
+        # Initialize the provider
+        self.provider.initialize()
+
+        # Sync model name from provider (might have fallback)
+        self.model_name = self.provider.model_name
+
+        # Delegate chat session to provider
+        self.chat_session = self.provider.chat_session
+
+    def is_model_loaded(self):
+        """Check if provider is initialized and ready."""
+        return self.provider is not None and self.provider.is_initialized()
+
+    def get_available_models(self):
+        """Return list of known working model names for the current provider."""
+        if self.provider:
+            return self.provider.get_available_models()
+        return []
+
+    def switch_model(self, new_model_name):
+        """
+        Switch to a different model using the provider.
+
+        Returns:
+            tuple: (success, error_message)
+        """
+        if not self.provider:
+            return False, "Provider not initialized"
+        success, error = self.provider.switch_model(new_model_name)
+        if success:
+            # Sync brain's model_name with provider's
+            self.model_name = self.provider.model_name
+            # Persist to config
+            edit_config(model=self.model_name)
+        return success, error
+
+    def get_model_rank(self, model_name):
+        """Get the index of a model in the priority list (0 = highest)."""
+        if self.provider:
+            return self.provider.get_model_rank(model_name)
+        models = self.get_available_models()
+        try:
+            return models.index(model_name)
+        except ValueError:
+            return len(models)
+
+    def find_better_model(self):
+        """
+        Check if there's a better (higher-ranked) model available.
+        Returns the better model name if found, otherwise None.
+        """
+        if self.provider:
+            return self.provider.find_better_model()
+        return None
+
+    def start_background_model_refresh(self, interval_hours=1):
+        """
+        Start background thread that periodically checks for better models.
+        Runs every interval_hours while the chat is active.
+        """
+        import threading
+        import time
+
+        def refresh_loop():
+            while True:
+                time.sleep(interval_hours * 3600)
+                better = self.find_better_model()
+                if better:
+                    success, error = self.switch_model(better)
+                    # Could log this somewhere if needed
+
+        thread = threading.Thread(target=refresh_loop, daemon=True)
+        thread.start()
+        return thread
 
     def choose_chat_db(self):
+        """Fallback interactive chat selection (only used if not passed)."""
         self.cursor.execute("SELECT id, name FROM chats ORDER BY created_at ASC")
         chats = self.cursor.fetchall()
 
@@ -118,102 +237,195 @@ class Brain:
 
         return chat_id, name
 
-    def generate_response(self, user_input: str) -> str:
+    def get_metadata(self):
+        """Get current chat metadata for UI toolbar."""
+        exchanges = len(self.history) // 2 if self.history else 0
+
+        # Get last activity timestamp
+        last_activity = None
+        if self.history:
+            last_msg = self.history[-1]
+            ts = last_msg.get("timestamp")
+            if ts:
+                last_activity = self._format_time_display(ts)
+
+        # Get model name from provider if available
+        model_display = self.model_name if self.model_name else "loading..."
+
+        return {
+            "model": model_display,
+            "chat_name": self.chat_name,
+            "exchanges": exchanges,
+            "timestamps_enabled": self.show_timestamps,
+            "last_activity": last_activity
+        }
+
+    def _format_time_display(self, ts):
+        """Format timestamp for display (HH:MM, local time)."""
+        if not ts:
+            return ""
         try:
-            response = self.chat_session.send_message(user_input)
+            from datetime import datetime
+            if isinstance(ts, str):
+                dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            else:
+                dt = ts
 
-            # updating history on the go
-            self.history.append({
-                "role": "user",
-                "parts": [user_input]
-            })
-            self.history.append({
-                "role": "model",
-                "parts": [response.text.strip()]
-            })
+            if hasattr(dt, 'tzinfo') and dt.tzinfo is not None:
+                dt = dt.astimezone()
 
-            # saving chat history to file
-            # with open(self.chat_path, "w", encoding="utf-8") as f:
-            #     json.dump(self.history, f, indent=2)
+            return dt.strftime("%H:%M")
+        except Exception:
+            return str(ts)[:5] if isinstance(ts, str) else ""
+
+    def get_history(self):
+        """Return full history for rendering."""
+        return self.history
+
+    def send_message(self, user_input):
+        """
+        Send user message, get response, save to DB.
+
+        Returns:
+            tuple: (response_text, model_ts)
+        """
+        user_ts = datetime.now(timezone.utc)
+
+        try:
+            response_text = self.provider.send_message(user_input)
+            model_ts = datetime.now(timezone.utc)
+
             # Save user message
             self.cursor.execute(
                 "INSERT INTO messages (chat_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (self.chat_id, "user", user_input, datetime.now(timezone.utc))
+                (self.chat_id, "user", user_input, user_ts)
             )
             # Save model response
             self.cursor.execute(
                 "INSERT INTO messages (chat_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (self.chat_id, "model", response.text.strip(), datetime.now(timezone.utc))
+                (self.chat_id, "model", response_text, model_ts)
             )
             self.conn.commit()
 
-            
-            return response.text.strip()
-        
+            # Append to in-memory history
+            self.history.append({
+                "role": "user",
+                "parts": [user_input],
+                "timestamp": user_ts
+            })
+            self.history.append({
+                "role": "model",
+                "parts": [response_text],
+                "timestamp": model_ts
+            })
+
+            return response_text, model_ts
+
         except Exception as e:
-            return f"[Error] Something went wrong: {e}"
+            return f"[bold red]Error: Something went wrong: {e}[/bold red]", None
 
-    def chat(self):
-        # importing chat history to the terminal
-        if self.history:
-            for message in self.history:
-                role = message["role"]
-                content = "\n".join(message["parts"]).strip()
-
-                if role == "user":
-                    self.console.print(f"[bold #b4befe]You:[/] {content}")
-                elif role == "model":
-                    self.console.print(f"[bold green]Nomi: [/]", end="")
-                    self.console.print(Markdown(content))
-                self.console.print("")
-        
-        # Greeting the user
-        try:
-            console.print("[bold cyan]\n\n\nL O A D I N G . . . \n\n\n[/bold cyan]")
-            console.print(f"[bold #b4befe]model in use: {self.model_name} \n[/bold #b4befe]")
-            console.print(f"[bold #b4befe]loaded chat: {self.chat_name} \n\n[/bold #b4befe]")
-            greeter = genai.GenerativeModel(self.model_name, system_instruction=self.persona)
-            greeting = greeter.generate_content("Greet the user warmly as Nomi.")
-            welcome_text = Markdown(greeting.text.strip())
-            self.console.print("[bold cyan]Nomi: [/]", end="")
-            self.console.print(welcome_text)
-            self.console.print("")
-        except Exception as e:
-            self.console.print("[bold cyan]Nomi is ready. Ask me anything! \n\n[/bold cyan]")
-
-        """
-        Chat loop which I'm sending to nomi.py
-        """
-
-        while True:
-            user_input= get_user_input()
-            if user_input.lower() in ["exit", "quit", "bye"]:
-                self.console.print("")
-                self.console.print("[italic dim]Goodbye, human. See you later :)[/italic dim]")
-                break
-            
-            self.console.print("")
-            response = self.generate_response(user_input)
-            md_response = Markdown(response)
-            self.console.print(f"[bold green]Nomi: [/]", end="")
-            self.console.print(md_response)
-            self.console.print("")
-
-        self.console.print("\n[dim]Press Enter to exit...[/dim]")
-        input()
+    def close(self):
+        """Close database connection and clean up provider."""
+        if self.provider:
+            self.provider.close()
         self.conn.close()
 
-if __name__ == "__main__":
-    load_dotenv()
+    # --- Command handling (returns action dict or None) ---
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("chat", nargs="?", help="Chat name to open (skip chooser)")
-    args = parser.parse_args()
+    def handle_command(self, cmd_line):
+        """
+        Handle slash commands. Returns dict with action info or None.
 
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+        Commands: help, exit, save, copy, export, status, timestamp, animation, clear, model, refresh_model
+        """
+        parts = cmd_line.strip().split()
+        cmd = parts[0].lower() if parts else ""
+        args = parts[1:]
 
-    if args.chat:
-        config["force_chat"] = args.chat
-    
-    Brain(config).chat()
+        if cmd == "help":
+            return {"action": "help"}
+
+        elif cmd == "exit":
+            return {"action": "exit"}
+
+        elif cmd == "save":
+            import os, json
+            os.makedirs("exports", exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fname = f"exports/{self.chat_name}_{timestamp}.json"
+            with open(fname, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, indent=2, ensure_ascii=False, default=str)
+            return {"action": "message", "message": f"Chat saved to {fname}"}
+
+        elif cmd == "copy":
+            # Copy last AI response to clipboard
+            for msg in reversed(self.history):
+                if msg["role"] == "model":
+                    text = "\n".join(msg["parts"]).strip()
+                    try:
+                        import pyperclip
+                        pyperclip.copy(text)
+                        return {"action": "message", "message": "Last response copied to clipboard."}
+                    except ImportError:
+                        return {"action": "message", "message": "pyperclip not installed. Install with: pip install pyperclip"}
+            return {"action": "message", "message": "No AI response to copy yet."}
+
+        elif cmd == "export":
+            import os
+            os.makedirs("exports", exist_ok=True)
+            if args:
+                fname = args[0]
+                if not fname.endswith('.md'):
+                    fname += '.md'
+            else:
+                fname = f"{self.chat_name}.md"
+            path = os.path.join("exports", fname)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"# {self.chat_name}\n\n")
+                for msg in self.history:
+                    role = "You" if msg["role"] == "user" else "Nomi"
+                    content = "\n".join(msg["parts"]).strip()
+                    f.write(f"## {role}\n{content}\n\n")
+            return {"action": "message", "message": f"Chat exported to {path}"}
+
+        elif cmd == "status":
+            exchanges = len(self.history) // 2
+            token_est = sum(len(m["parts"][0].split()) for m in self.history if m["parts"])
+            return {
+                "action": "status",
+                "data": {
+                    "chat": self.chat_name,
+                    "model": self.model_name,
+                    "exchanges": exchanges,
+                    "tokens": int(token_est),
+                    "timestamps": self.show_timestamps
+                }
+            }
+
+        elif cmd == "timestamp":
+            current = self.show_timestamps
+            self.show_timestamps = not current
+            edit_config(ui={"show_timestamps": self.show_timestamps})
+            return {"action": "message", "message": f"Timestamps {'enabled' if self.show_timestamps else 'disabled'}"}
+
+        elif cmd == "animation":
+            ui_cfg = self.config.get("ui", {})
+            current = ui_cfg.get("animation_enabled", True)
+            new_val = not current
+            edit_config(ui={"animation_enabled": new_val})
+            self.config["ui"]["animation_enabled"] = new_val
+            return {"action": "message", "message": f"Animations {'enabled' if new_val else 'disabled'}"}
+
+        elif cmd == "clear":
+            return {"action": "clear"}
+
+        elif cmd == "model":
+            # Return list of available models for UI to display/select
+            models = self.get_available_models()
+            return {"action": "select_model", "models": models}
+
+        elif cmd == "refresh_model":
+            return {"action": "refresh_model"}
+
+        else:
+            return {"action": "message", "message": f"Unknown command: /{cmd}. Type /help for available commands."}

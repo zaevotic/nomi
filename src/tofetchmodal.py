@@ -3,11 +3,7 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY not set in environment!")
-
-genai.configure(api_key=api_key)
+# Note: API key is checked and configured lazily in get_working_model()
 
 # Hardcoded generateContent models list (no ranking)
 generate_models_list = [
@@ -56,6 +52,11 @@ def get_working_model(persona):
     """
     Returns the first working model from the hardcoded list.
     """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not set in environment!")
+    genai.configure(api_key=api_key)
+
     conn = sqlite3.connect("nomi_memory.db")
     cursor = conn.cursor()
     cursor.execute(
@@ -68,7 +69,7 @@ def get_working_model(persona):
     #     for chat_id, role, content, timestamp in rows
     # ]
     full_history = [
-        {"role": role, "parts": [{"text": content}]} 
+        {"role": role, "parts": [{"text": content}]}
         for _, role, content, _ in rows
     ]
     for model_name in generate_models_list:
