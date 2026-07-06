@@ -36,11 +36,8 @@ class AnthropicProvider(Provider):
         return False, "Not implemented"
 
     def get_available_models(self) -> List[str]:
-        """Return typical Anthropic model names."""
         return [
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307",
+            # List of models...
         ]
 
     def close(self) -> None:

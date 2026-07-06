@@ -40,12 +40,7 @@ class OpenRouterProvider(Provider):
     def get_available_models(self) -> List[str]:
         """Return known OpenRouter model IDs (placeholder)."""
         return [
-            "openai/gpt-4",
-            "openai/gpt-4-turbo",
-            "openai/gpt-3.5-turbo",
-            "anthropic/claude-3-opus",
-            "anthropic/claude-3-sonnet",
-            # ... more models from OpenRouter catalog
+            # List of models...
         ]
 
     def close(self) -> None:

@@ -38,9 +38,7 @@ class OpenAIProvider(Provider):
     def get_available_models(self) -> List[str]:
         """Return typical OpenAI model names."""
         return [
-            "gpt-4-turbo",
-            "gpt-4",
-            "gpt-3.5-turbo",
+            # List of models...
         ]
 
     def close(self) -> None:

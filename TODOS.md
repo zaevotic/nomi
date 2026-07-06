@@ -1,139 +1,8 @@
 # Nomi To-Do List
 
-This document compiles all TODO items, planned features, and known issues from the codebase and development plan.
+This document compiles all TODO items, planned features, and known issues.
 
-**Last Updated:** April 8, 2026 *(Updated: Verified all source files against TODO items)*
-
----
-*Note: This verification was performed by examining all source files in the src/ directory and cross-referencing with existing TODO comments, revamp_plan.md, and README.md. Items marked as completed have been verified against actual implementation.*
-
----
-
-## Feature TODOs (from Code Comments)
-
-### Provider Implementations
-
-#### OpenRouter (`src/providers/openrouter.py`)
-
-- [ ] Implement OpenRouter API integration
-- [ ] Handle authentication via `OPENROUTER_API_KEY`
-- [ ] Support model discovery from OpenRouter endpoints
-- [ ] Implement streaming/non-streaming responses
-- [ ] Handle provider-specific features (params, pricing, etc)
-
-#### OpenAI (`src/providers/openai.py`)
-
-- [ ] Implement OpenAI API integration using `openai` package
-- [ ] Handle authentication via `OPENAI_API_KEY`
-- [ ] Support ChatGPT models (gpt-4, gpt-3.5-turbo, etc.)
-- [ ] Implement streaming and function calling if needed
-
-#### Anthropic Claude (`src/providers/anthropic.py`)
-
-- [ ] Implement Anthropic API integration using `anthropic` package
-- [ ] Handle authentication via `ANTHROPIC_API_KEY`
-- [ ] Support Claude models (claude-3-opus, claude-3-sonnet, claude-3-haiku)
-- [ ] Handle Anthropic's message format (system as separate parameter)
-
----
-
-## Planned Features (from `.claude/revamp_plan.md`)
-
-### Missing from README Scope
-
-- [ ] Vector database / RAG integration
-- [ ] Multi-user chat support
-- [ ] Web scraping capability (`/fetch <url>`)
-- [ ] File upload support (images, documents)
-- [ ] Voice capabilities (input/output)
-- [ ] Full-window TUI (single-window alternative to multi-window CLI)
-- [ ] Plugin system integration (scaffolding exists in menu.py)
-
-### Slash Commands
-
-- [ ] `/switch` - Switch between chats without returning to menu
-- [x] `/copy` - Copy last AI response to clipboard (pyperclip optional dependency) - *Implemented, requires `pip install pyperclip`*
-- [ ] `/theme` - Color theme switching
-- [ ] `/search` - Search across messages
-
-### Chat Management
-
-- [ ] Message editing (DB history updates)
-- [ ] Chat search functionality
-- [x] Display chat metadata in menu (last activity, message count) - *Implemented in chat selection screen*
-
-### UX Improvements
-
-- [ ] Better error messages for API failures (network, quota)
-- [ ] Retry logic for transient errors
-- [ ] Graceful handling of missing/changed API key
-- [ ] Chat rename validation (prevent duplicates) - *Already implemented*
-- [ ] Show chat size/word count in menu - *Could be added to chat metadata display*
-
-### Technical Enhancements
-
-- [ ] Live streaming of responses (Gemini streaming API)
-- [ ] Single-window TUI (prototyped on `tui-branch`)
-- [ ] Plugin system integration (scaffolding exists in menu.py)
-- [ ] Remote triggers / scheduled agents
-- [ ] Sync across devices (cloud backup)
-
----
-
-## Testing Checklist
-
-- [x] DB creation & migrations on fresh run
-- [x] Terminal launch works on Linux/macOS/Windows
-- [x] Slash commands execute correctly
-- [x] Timestamps format correctly for today vs older
-- [x] Character limit enforced
-- [x] Settings persist after exit
-- [x] Chat rename handles duplicates gracefully
-- [x] Delete confirmation works
-- [ ] Test API failure scenarios (offline, invalid key, quota exceeded)
-- [ ] Test very long messages (exceed character limit, test truncation)
-- [ ] Stress test with many chats (100+)
-- [ ] Verify exported JSON and Markdown files are valid and complete
-- [ ] Test provider switching (Gemini → OpenAI/Anthropic/OpenRouter) when implemented
-- [ ] Test background model refresh thread doesn't cause race conditions
-
----
-
-## Known Issues / Technical Debt
-
-1. **Spinner in chat windows**: Uses `rich.status` which briefly flashes; consider smoother indicators
-2. **No response streaming**: `generate_response` blocks until full response; could use Gemini streaming API for real-time output
-3. **Hard-coded colors in brain.py**: `#b4befe` for user, `green` for Nomi; should come from config for theming
-4. **Menu loop blocking**: `main_menu()` is a while loop; could be refactored to state machine for better testability
-5. **Terminal detection can fail**: If unknown terminal, user must manually set `default_terminal` in config
-6. **Copy command requires pyperclip**: Already shows helpful error message; consider making it a dependency or providing clearer install instructions
-7. **Background model refresh**: Threading implementation could have race conditions or resource leaks - needs testing
-8. **Character limit enforcement**: Only UI-level; could add server-side validation for safety
-
----
-
-## Multi-Provider Architecture (Current State)
-
-### Completed ✅
-
-- [x] Abstract `Provider` base class created
-- [x] Gemini provider fully implemented
-- [x] Placeholder providers for OpenRouter, OpenAI, Anthropic
-- [x] Settings menu consolidation (Persona, Appearance, Model Selection, API, Plugins)
-- [x] Model selection with provider switching
-- [x] API keys stored in `.env` file
-- [x] Lazy provider loading to avoid unnecessary imports
-
-### Next Steps for Multi-Provider
-
-- [ ] Implement OpenRouter API integration (allows access to many models)
-- [ ] Implement OpenAI API integration
-- [ ] Implement Anthropic API integration
-- [ ] Add provider-specific configuration (base URLs, extra headers)
-- [ ] Implement proper error handling per provider
-- [ ] Add rate limit handling per provider
-- [ ] Implement model discovery/listing from provider APIs
-- [ ] Add provider comparison/ranking for auto-upgrade
+**Last Updated:** July 6, 2026
 
 ---
 
@@ -143,260 +12,208 @@ This document compiles all TODO items, planned features, and known issues from t
 - Menu system: `src/menu.py`
 - Core logic: `src/brain.py`
 - Providers: `src/providers/`
+- Memory system: `src/memory/` *(planned)*
 - Settings: `src/utils/cli.py`
-- Development plan: `.claude/revamp_plan.md`
 
 ---
 
-## Development Roadmap (from revamp_plan.md)
+## Provider Implementations
 
-### Priority 1: Polish CLI Experience
+### Completed
 
-- [ ] Add `/switch` command to quickly jump between chats without returning to menu
-- [ ] Add `/theme` command for basic color theme switching (maybe dark/light/retro presets)
-- [ ] Implement chat search (`/search <query>` or separate screen)
-- [x] Add `/copy` to copy last AI response to clipboard (handle pyperclip optional) - *Already implemented*
+- [x] Abstract `Provider` base class created
+- [x] Gemini provider fully implemented
+- [x] Local provider (Ollama / Qwen2.5) fully implemented
+  - [x] Chat history loading from DB
+  - [x] Provider/model mismatch detection (Gemini model name → auto-pick Ollama model)
+- [x] Placeholder providers for OpenRouter, OpenAI, Anthropic
+- [x] Settings menu: provider switching + live model search (questionary autocomplete)
+- [x] API keys stored in `.env` file
+- [x] Lazy provider loading to avoid unnecessary imports
 
-### Priority 2: Stability & Ergonomics
+### Pending
 
-- [ ] Better error messages when API fails (network issues, quota)
+#### OpenRouter (`src/providers/openrouter.py`)
+- [ ] Implement OpenRouter API integration
+- [ ] Handle authentication via `OPENROUTER_API_KEY`
+- [ ] Support model discovery from OpenRouter endpoints
+- [ ] Implement streaming/non-streaming responses
+
+#### OpenAI (`src/providers/openai.py`)
+- [ ] Implement OpenAI API integration using `openai` package
+- [ ] Handle authentication via `OPENAI_API_KEY`
+- [ ] Support ChatGPT models (gpt-4o, gpt-4-turbo, etc.)
+
+#### Anthropic (`src/providers/anthropic.py`)
+- [ ] Implement Anthropic API integration using `anthropic` package
+- [ ] Handle authentication via `ANTHROPIC_API_KEY`
+- [ ] Handle Anthropic's message format (system as separate parameter)
+
+#### General Provider Work
+- [ ] Add rate limit handling per provider
+- [ ] Implement proper error handling per provider (network, quota, key rotation)
+- [ ] Add provider comparison/ranking for auto-upgrade
+- [ ] Live streaming of responses (token-by-token output)
+
+---
+
+## Hybrid AI Backend: Implementation Plan
+
+The core upgrade: Qwen2.5 (Ollama) as the conversational core, backed by vector semantic memory, document RAG, a curated facts store, and an optional vision pipeline. See `implementation_plan.md` for the full design.
+
+### Phase 1: Semantic Event Memory *(Foundation)*
+
+**Goal:** Every exchange is embedded and stored. Nomi can recall things from past sessions, even across different chats.
+
+- [ ] Create `src/memory/` package (`__init__.py`)
+- [ ] `src/memory/embedder.py`: wrap Ollama `/api/embeddings` with `nomic-embed-text`; fall back to `sentence-transformers` if Ollama unreachable
+- [ ] `src/memory/store.py`: Chroma wrapper; one collection each for `events`, `docs`, `media`; upsert/query/delete
+- [ ] `src/memory/memory_manager.py`: high-level API: `ingest_exchange()`, `search()`, `rebuild_index()`
+- [ ] `src/brain.py`: hook `send_message()`: run `memory.search()` before provider call; `memory.ingest_exchange()` in background thread after reply
+- [ ] `nomi.py`: on startup: if Chroma index missing, run one-shot backfill from SQLite `messages` table
+- [ ] Add `memory:` section to `config.yaml` (enabled, embedding_model, chroma_path, top_k, min_score, token_budget, ingest_on_reply)
+- [ ] Add `chromadb>=0.5.0` to `requirements.txt`
+
+**Validation:** Say "My favorite number is 42", exit, reopen a *new* chat, ask "What's my favorite number?" - Nomi should recall it.
+
+### Phase 2: Document RAG *(File Intelligence)*
+
+**Goal:** Ingest PDFs, markdown, and text files; retrieve relevant chunks at query time.
+
+- [ ] `src/memory/doc_ingestor.py`: `ingest_file()` / `ingest_dir()`; chunk 800 tokens / 20% overlap; PDF via `pypdf`; metadata: source_path, chunk_index, page_number, ingested_at
+- [ ] `src/brain.py`: merge `events` + `docs` search results; deduplicate by source; keep top-6
+- [ ] `src/menu.py`: add **Memory** section to Settings: Ingest file, Ingest folder, View index stats, Rebuild index
+- [ ] Slash commands in `brain.handle_command()`:
+  - [ ] `/ingest <path>`: ingest file or directory
+  - [ ] `/recall <query>`: explicit deep search (top-10 with scores)
+  - [ ] `/forget <id>`: delete a specific memory hit by ID
+- [ ] Add `pypdf>=4.0.0` to `requirements.txt`
+
+**Validation:** Drop a PDF, run `/ingest ./paper.pdf`, ask a question from its content, answer should cite the chunk.
+
+### Phase 3: Facts Store *(Authoritative Knowledge)*
+
+**Goal:** Human-curated, versioned facts that override model hallucination when confidence is high.
+
+- [ ] Create `facts/` directory at repo root with YAML front-matter markdown format (`slug`, `title`, `confidence`, `source`, `last_verified`, `tags`)
+- [ ] `src/memory/facts_store.py`: index `facts/` into `nomi_facts` SQLite table + embeddings; `sync()`, `query()`, `add_fact()`
+- [ ] `src/brain.py`: facts lookup runs *first* in `send_message()`; if `confidence × similarity > 0.8`, prepend `[VERIFIED FACT]` block with citation
+- [ ] Slash commands:
+  - [ ] `/fact add`: interactive YAML + content prompt
+  - [ ] `/fact list`: show all slugs + titles
+  - [ ] `/fact sync`: re-index from `facts/` directory
+
+**Validation:** Add a fact, ask a question that triggers it, response should include citation and not hallucinate.
+
+### Phase 4: Vision Pipeline *(On-Demand)*
+
+**Goal:** Caption images and extract keyframes from video; store captions in the `media` Chroma collection for semantic retrieval.
+
+- [ ] `src/memory/vision.py`: `caption_image()`, `extract_keyframes()` (via `ffmpeg`, optional), `ingest_media()`; uses `qwen2.5-vl` or `llava` via Ollama; graceful fallback if no VL model pulled
+- [ ] `src/brain.py`: query `media` collection in retrieval step; prepend `[IMAGE/VIDEO CONTEXT]` blocks with captions + source paths
+- [ ] Extend `/ingest <path>` to route image/video extensions to `vision.ingest_media()`
+
+**Validation:** Ingest a photo, ask something related to it - Nomi cites the caption.
+
+### Phase 5: Context Builder & Prompt Assembly *(Polish)*
+
+**Goal:** Consolidate all retrieval into a single token-budget-aware assembler; keep prompt clean and within limits.
+
+- [ ] `src/memory/context_builder.py`: `build(query, chat_history, max_tokens)` → `PromptContext` dataclass; priority: facts > event memory > doc chunks > media
+- [ ] `src/brain.py`: replace ad-hoc retrieval calls with single `context_builder.build()` call
+- [ ] `src/providers/local.py`: add `inject_context(block: str)` method; prepends context as a `system` message separate from persona
+- [ ] `Time context module`: detect morning/evening/weekend; add temporal awareness to responses
+- [ ] `Decay weights for event memories`: stale items rank lower over time unless pinned
+
+---
+
+## CLI & UX
+
+### Slash Commands
+- [x] `/copy`: copy last AI response to clipboard *(requires `pip install pyperclip`)*
+- [ ] `/switch`: switch between chats without returning to main menu
+- [ ] `/search`: search across message history
+- [ ] `/theme`: color theme switching (dark/light/retro presets)
+- [ ] `/ingest <path>`: ingest file into memory *(Phase 2)*
+- [ ] `/recall <query>`: explicit semantic search *(Phase 2)*
+- [ ] `/forget <id>`: delete a memory hit *(Phase 2)*
+- [ ] `/fact add / list / sync`: manage facts store *(Phase 3)*
+
+### Chat Management
+- [x] Display chat metadata in menu (last activity, message count)
+- [ ] Message editing (update DB history)
+- [ ] Chat search functionality
+
+### UX Improvements
+- [ ] Better error messages for API failures (network, quota, invalid key)
 - [ ] Retry logic for transient errors
-- [ ] Graceful handling of missing/changed API key
-- [ ] Chat rename validation (no duplicates) - *Already implemented*
-- [ ] Show chat size/word count in menu - *Could be added to chat metadata display*
+- [ ] Show chat size/word count in menu
 
-### Priority 3: External Memory System (Obsidian-like Interface)
+---
 
-- [ ] Note system architecture - *Markdown-based notes with unique IDs and metadata (title, created, tags)*  
-- [ ] Link parser - *Parse and extract [[wikilinks]] and #tags from note content*
-- [ ] Graph database - *Build relationship graph between notes using NetworkX*
-- [ ] Vector embeddings - *Generate embeddings for semantic similarity search (sentence-transformers or OpenAI)*
-- [ ] FAISS vector store - *Store and query note embeddings efficiently*
-- [ ] Graph-based memory expansion - *Auto-expand queries via linked notes (1-hop, 2-hop)*
-- [ ] Bi-directional links - *Store forward links AND backlinks automatically*
-- [ ] Tag-based indexing - *Index #tags for quick category-based retrieval*
-- [ ] Note creation interface - *Add notes via chat commands or UI (`/note create`)*
-- [ ] Note visualization - *Basic graph view or ASCII tree of note relationships*
-- [ ] Semantic search - *Find similar concepts using vector similarity*
-- [ ] Auto-linking suggestions - *Suggest related existing notes when creating new ones*
-- [ ] Note CRUD operations - *Create, read, update, delete notes with proper history*
-- [ ] External note storage - *Store notes in organized directory structure (`notes/`)*
-- [ ] Note linking from chat - *Mention notes in conversation using [[note name]] syntax*
+## Technical Enhancements
 
-### Priority 4: Environment Awareness & Context Building
-
-- [ ] Context Builder architecture design - *Design system to merge memory, time, external data into structured context*
-- [ ] Time context integration - *Add relative time (morning/evening) and temporal awareness to responses*
-- [ ] Local file read-only access - *List, read, and search files without writing*
-- [ ] Web integration - *Controlled web search → fetch → summarize workflow*
-- [ ] Multi-source context merging - *Combine memory + time + external data into unified context*
-- [ ] Context-aware response formatting - *Adjust responses based on all available context*
-- [ ] Context scoring/ranking - *Prioritize most relevant context pieces for token budget*
-
-### Priority 5: Advanced Features (from README)
-
-- [ ] Vector database integration for memory/context retrieval - *Implement using FAISS (already in Priority 3)*
-- [ ] File attachment support (images, documents) - *Upload and reference files in notes/chats*
-- [ ] Web scraping (`/fetch <url>`) - *Fetch and summarize web content*
-- [ ] Multi-user chat (invite others, shared DB?) - *Shared database with user management*
-- [ ] Voice input/output (optional, platform-dependent) - *Speech-to-text and TTS*
-
-### Future Consideration
-
-- [ ] Single-window TUI (already prototyped on `tui-branch`, may be merged later if desired)
-- [ ] Plugin system (scaffolding exists but not integrated)
+- [ ] Live streaming of responses (token-by-token output for local + Gemini)
+- [ ] Plugin system integration (scaffolding exists in `menu.py`)
 - [ ] Remote triggers / scheduled agents
 - [ ] Sync across devices (cloud backup)
+- [ ] Single-window TUI (prototyped on `tui-branch`)
+- [ ] Web scraping (`/fetch <url>` → fetch → summarize)
+- [ ] Voice input/output (speech-to-text + TTS, platform-dependent)
+- [ ] Multi-user chat (shared DB with user management)
 
 ---
 
-## External Memory System: Implementation Sequence (Critical Path)
+## Known Issues / Technical Debt
 
-### Phase 1: Note System Foundation
-
-1. Define note schema (id, title, content, links, tags, timestamps)
-2. Create note directory structure (`notes/` folder)
-3. Build markdown parser with [[wikilink]] extraction
-4. Implement note CRUD commands (`/note create`, `/note edit`, `/note delete`)
-5. Store note metadata alongside markdown files
-
-### Phase 2: Graph Construction
-
-6. Add NetworkX dependency
-7. Build graph builder: parse all notes → extract edges from [[links]]
-8. Store graph structure (in-memory + persist to disk as JSON)
-9. Implement graph traversal (get linked notes, find paths)
-10. Generate adjacency lists for quick expansion
-
-### Phase 3: Vector Layer
-
-11. Add sentence-transformers or OpenAI embeddings dependency
-12. Generate embeddings for every note (batch process existing notes)
-13. Set up FAISS index for fast similarity search
-14. Implement semantic search: "find notes similar to X"
-15. Store embedding vectors alongside notes
-
-### Phase 4: Retrieval Integration
-
-16. Build unified retrieval function: `(query) → relevant_notes`
-17. Combine vector search + graph expansion (retrieve → expand 1-2 hops)
-18. Return structured context: `{primary, related, timeline}`
-19. Test with messy human queries ("that mars thing")
-20. Tune search parameters (top-k, expansion depth)
-
-### Phase 5: Context Builder
-
-21. Add time context module (detect morning/evening/weekend)
-22. Design context merging algorithm (priority ranking)
-23. Format context for LLM consumption (token budgeting)
-24. Plug structured context into Nomi's prompt (brain.py)
-25. Verify Nomi can reference specific notes in responses
-
-### Phase 6: UI Integration
-
-26. Add note commands (`/note list`, `/note show <id>`, `/note search`, `/note tag <tagname>`)
-27. Show note references in chat UI (when Nomi cites a note with `[[link]]`)
-28. Add ability to create notes from chat (save exchange as note: `/note save`)
-29. Simple graph visualization (text-based tree or ASCII art, `mermaid` diagram in markdown)
-30. Nomi auto-references: When Nomi recalls something from notes, show subtle `[note: Title]` attribution
-31. Note index rebuild command (for when many notes change) (`/note reindex`)
-
-### Phase 7: Integration & Testing
-
-32. Plug Context Builder into Brain's message generation pipeline
-33. Inject structured context into LLM prompt with proper role separation (think: "Here's what I know from memory...")
-34. A/B test: Compare quality with/without external memory
-35. Stress test with 1000+ notes (measure recall + graph traversal performance)
-36. User testing: Verify Nomi can "answer from notes" consistently
-37. Add tests for link extraction, graph traversal, and vector search edge cases
+1. **No response streaming** - `send_message()` blocks until full response; streaming would massively improve UX for large replies
+2. **Hard-coded colors in `brain.py`** - user color `#b4befe`, Nomi color `green`; should come from config for theming
+3. **Spinner flickers** - spinner uses `rich.status` which briefly flashes on some terminals; consider smoother frame-based indicator
+4. **Menu loop blocking** - `main_menu()` is a while loop; could be refactored to a state machine for better testability
+5. **Background model refresh** - threading implementation could have race conditions or resource leaks; needs stress testing
+6. **Character limit is UI-only** - no server-side enforcement; long pastes bypass it silently
+7. **`requirements.txt` was overwritten by user** - current `requirements.txt` appears to contain unrelated packages; needs to be restored to the correct Nomi dependency set
 
 ---
 
-## Key Design Decisions to Make (Open Questions)
+## Testing Checklist
 
-1. **Embedding model**: sentence-transformers (local) vs OpenAI (API)? Trade-off: quality vs cost/latency
-2. **Note storage**: pure markdown files vs SQLite table for metadata? Trade-off: human-readable vs queryable
-3. **Graph persistence**: in-memory NetworkX + disk serialization vs dedicated graph DB (Neo4j)?
-4. **Link syntax**: `[[note title]]` vs `#tag` vs custom? Stick with Obsidian format for compatibility?
-5. **Sync model**: Background embedding generation on demand vs pre-compute all?
-6. **Context window**: How many notes to include? Dynamic based on token count?
+### Passing
+- [x] DB creation & migrations on fresh run
+- [x] Terminal launch works on Linux/macOS
+- [x] Slash commands execute correctly
+- [x] Timestamps format correctly for today vs older
+- [x] Character limit enforced (UI level)
+- [x] Settings persist after exit
+- [x] Chat rename handles duplicates gracefully
+- [x] Delete confirmation works
+- [x] Local (Ollama) provider connects and responds
+- [x] Local provider carries chat history across messages within a session
+- [x] Local provider loads DB history correctly on session resume
+- [x] Provider/model mismatch auto-corrects (Gemini model name → Ollama model)
 
----
-
-## Early Validation Criteria
-
-Once Phase 1-2 are done, validate by:
-```
-Query: "What did I write about Mars?"
-Expected: Returns note ID(s) containing "Mars" + linked notes (even if link text doesn't say "Mars")
-```
-
-Once Phase 3 is done, validate by:
-```
-Query: "That conspiracy theory note"
-Expected: Returns the note even if exact words don't match (semantic hit)
-```
-
-Once Phase 4 is done, validate by:
-```
-Context output is: { "primary": [1,2], "related": [3,4,5], "timeline": [...] }
-Brain uses it to produce informed responses.
-```
-
-Stop here — don't overbuild. If this works, proceed to Phase 5.
+### Pending
+- [ ] Test API failure scenarios (offline, invalid key, quota exceeded)
+- [ ] Test very long messages (exceed character limit)
+- [ ] Stress test with many chats (100+)
+- [ ] Verify exported JSON and Markdown files are valid and complete
+- [ ] Test provider switching (Gemini → OpenRouter/OpenAI/Anthropic)
+- [ ] Test background model refresh thread for race conditions
+- [ ] Memory Phase 1: cross-session recall after restart
+- [ ] Memory Phase 2: doc chunk retrieval in responses
+- [ ] Memory Phase 3: fact override with citation
+- [ ] Memory Phase 4: image caption retrieval
 
 ---
 
-## Obsidian vs. Nomi External Memory: Key Differences
+## New Dependencies (Planned)
 
-| Aspect | Obsidian | Nomi's System |
-|--------|----------|---------------|
-| **Data Source** | Static markdown files (user-written) | Dynamic memory (conversation + notes) |
-| **Linking** | Manual `[[links]]` | Auto-suggested + manual |
-| **Understanding** | None (just storage) | AI-powered retrieval & response |
-| **Graph** | Visual only (manual exploration) | Invisible backbone (auto-expansion) |
-| **Search** | Text-based + plugins | Vector-semantic + graph expansion |
-| **Action** | Read-only reference | Active participant (talks back) |
-| **Evolution** | Manual curation | Auto-generated links + semantic clustering |
+| Package | Version | Purpose | Phase |
+|---------|---------|---------|-------|
+| `chromadb` | ≥0.5.0 | Vector store (embedded, no server) | 1 |
+| `pypdf` | ≥4.0.0 | PDF parsing for doc ingestor | 2 |
+| `sentence-transformers` | ≥2.2.0 | CPU-only embedding fallback (optional) | 1 |
 
-**Philosophical difference:**
-
-- Obsidian = **second brain** for a human to reference
-- Nomi = **living brain** that uses notes as part of its cognition
-
-**Implementation Checkpoint:** Only move to the next phase if the current one passes validation. Don't build ahead — build surgically.
-
----
-
-## Technical Dependencies to Add
-
-### Phase 1-2 (Graph)
-
-```python
-networkx>=3.0  # For graph construction and traversal
-```
-
-### Phase 3 (Vectors)
-
-```python
-sentence-transformers>=2.0  # Local embedding generation (offline, private)
-OR
-openai>=1.0  # For OpenAI embeddings (higher quality, paid)
-faiss-cpu>=1.7  # For fast nearest-neighbor search
-```
-
-### Phase 5-6 (UI)
-
-```python
-rich  # Already used - extend for better note display
-prompt_toolkit  # Already used - add autocompletion for note names
-```
-
-**Suggested baseline:** Start with `sentence-transformers` + `faiss-cpu` for a fully local, private setup.
-
----
-
-## File Structure (where things live)
-
-```
-nomi/
-├── notes/                  # External memory storage
-│   ├── 001_martian_moonlight_conspiracy.md
-│   ├── 002_identity_theory.md
-│   └── ...
-├── notes_index.json        # Note metadata (id, title, path, tags)
-├── notes_graph.json        # NetworkX adjacency {node_id: [linked_ids]}
-├── notes_vectors/          # FAISS index + mapping files
-│   ├── index.faiss
-│   └── id_mapping.pkl
-└── src/
-    ├── notes/              # New module for memory system
-    │   ├── __init__.py
-    │   ├── parser.py       # Markdown + wikilink extraction
-    │   ├── graph.py        # NetworkX graph builder
-    │   ├── vectors.py      # Embedding + FAISS
-    │   ├── retrieval.py    # Unified retrieval function
-    │   └── cli.py          # /note commands
-    └── brain.py            # Modified to accept external context
-```
-
----
-
-## What "Retrieval is Stable" Actually Looks Like
-
-When testing shows:
-
-```
-You: "that mars thing"
-Nomi: "You're referring to Martian Moonlight Conspiracy [note #1]...
-       It's linked to Identity Theory [note #3] and Human Evolution [note #7]."
-```
-
-See that? Nomi named the note, cited IDs, and mentioned linked notes.
-
-**That's the checkpoint.** Once you can do that consistently (even with vague queries), you are ready to layer time → files → web on top.
-
----
-
-**Final note:** You're not building a note-taking app. You're building memory infrastructure for an AI that thinks. Build only what it needs to think clearly.
-
+> Embedding: use `nomic-embed-text` via `ollama pull nomic-embed-text` (preferred, zero extra Python deps).
+> Vision: use `qwen2.5-vl` or `llava` via Ollama (optional, pull on demand).
+> Video keyframes: requires `ffmpeg` at OS level (optional, gracefully skipped).

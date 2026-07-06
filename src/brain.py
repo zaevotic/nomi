@@ -13,12 +13,6 @@ load_dotenv()
 
 
 class Brain:
-    """
-    Core chat logic - no UI/console output.
-    All presentation handled by ChatRenderer.
-
-    Uses a Provider abstraction to support multiple AI backends.
-    """
 
     def __init__(self, config, chat_name=None, chat_id=None):
         """
@@ -52,7 +46,6 @@ class Brain:
         self.model_name = config.get("default_model")
         self.chat_session = None  # Delegate to provider
 
-        # --- Chat resolution ---
         if chat_id is not None and chat_name is not None:
             self.chat_id = chat_id
             self.chat_name = chat_name
@@ -70,7 +63,7 @@ class Brain:
         else:
             self.chat_id, self.chat_name = self.choose_chat_db()
 
-        # --- Load history (for display) ---
+        # Load history (for display)
         self.cursor.execute(
             "SELECT role, content, timestamp FROM messages WHERE chat_id=? ORDER BY timestamp ASC",
             (self.chat_id,)
@@ -81,7 +74,7 @@ class Brain:
             for role, content, timestamp in rows
         ]
 
-        # --- Load history for model context ---
+        # Load history for model context
         self.cursor.execute(
             "SELECT role, content FROM messages WHERE chat_id=? ORDER BY timestamp ASC",
             (self.chat_id,)
@@ -92,12 +85,32 @@ class Brain:
             for role, content in rows
         ]
 
-        # If no model set, pick a working one for the provider
-        if not self.model_name:
+        # If no model set, OR the configured model clearly belongs to a different
+        # provider, pick a suitable one for the active provider.
+        def _model_belongs_to_local(name: str) -> bool:
+            # Returns True if name looks like a real Ollama model.
+            gemini_prefixes = ("gemini-", "models/gemini", "palm")
+            return not any(name.lower().startswith(p) for p in gemini_prefixes)
+
+        needs_new_model = (
+            not self.model_name
+            or (self.provider_name == "local" and not _model_belongs_to_local(self.model_name))
+        )
+
+        if needs_new_model:
             if self.provider_name == "gemini":
                 # Lazy import to avoid loading tofetchmodal at module import
                 from src.tofetchmodal import get_working_model as get_gemini_working_model
                 self.model_name = get_gemini_working_model(self.persona)
+            elif self.provider_name == "local":
+                # Query the running Ollama instance for available models
+                try:
+                    from src.providers.local import LocalProvider
+                    provider_temp = LocalProvider(self.config, self.persona)
+                    models = provider_temp.get_available_models()
+                    self.model_name = models[0] if models else "qwen2.5"
+                except Exception:
+                    self.model_name = "qwen2.5"
             else:
                 # For other providers, pick first from their list or None
                 provider_temp = self.provider_class(self.config, self.persona)
@@ -105,7 +118,7 @@ class Brain:
                 self.model_name = models[0] if models else None
 
     def _get_provider_class(self, provider_name: str) -> type:
-        """Lazy load provider class to avoid importing all dependencies at startup."""
+        # Lazy load provider class to avoid importing all dependencies at startup.
         if provider_name == "gemini":
             from src.providers.gemini import GeminiProvider
             return GeminiProvider
@@ -118,12 +131,14 @@ class Brain:
         elif provider_name == "anthropic":
             from src.providers.anthropic import AnthropicProvider
             return AnthropicProvider
+        elif provider_name == "local":
+            from src.providers.local import LocalProvider
+            return LocalProvider
         else:
             from src.providers.gemini import GeminiProvider
             return GeminiProvider
 
     def initialize_provider(self):
-        """Initialize the selected provider with current config and history."""
         # Create provider instance
         self.provider = self.provider_class(self.config, self.persona)
 
@@ -144,34 +159,26 @@ class Brain:
         self.chat_session = self.provider.chat_session
 
     def is_model_loaded(self):
-        """Check if provider is initialized and ready."""
+        # Check if provider is initialized and ready
         return self.provider is not None and self.provider.is_initialized()
 
     def get_available_models(self):
-        """Return list of known working model names for the current provider."""
         if self.provider:
             return self.provider.get_available_models()
         return []
 
     def switch_model(self, new_model_name):
-        """
-        Switch to a different model using the provider.
-
-        Returns:
-            tuple: (success, error_message)
-        """
+        # Switch to a different model using the provider
+        # Returns (success, error_message)
         if not self.provider:
             return False, "Provider not initialized"
         success, error = self.provider.switch_model(new_model_name)
         if success:
-            # Sync brain's model_name with provider's
             self.model_name = self.provider.model_name
-            # Persist to config
             edit_config(model=self.model_name)
         return success, error
 
     def get_model_rank(self, model_name):
-        """Get the index of a model in the priority list (0 = highest)."""
         if self.provider:
             return self.provider.get_model_rank(model_name)
         models = self.get_available_models()
@@ -181,19 +188,14 @@ class Brain:
             return len(models)
 
     def find_better_model(self):
-        """
-        Check if there's a better (higher-ranked) model available.
-        Returns the better model name if found, otherwise None.
-        """
+        # Check if there's a better (higher-ranked) model available.
         if self.provider:
             return self.provider.find_better_model()
         return None
 
     def start_background_model_refresh(self, interval_hours=1):
-        """
-        Start background thread that periodically checks for better models.
-        Runs every interval_hours while the chat is active.
-        """
+        # Start background thread that periodically checks for better models.
+        # Runs every interval_hours while the chat is active. (under progress)
         import threading
         import time
 
@@ -210,7 +212,6 @@ class Brain:
         return thread
 
     def choose_chat_db(self):
-        """Fallback interactive chat selection (only used if not passed)."""
         self.cursor.execute("SELECT id, name FROM chats ORDER BY created_at ASC")
         chats = self.cursor.fetchall()
 
@@ -238,7 +239,6 @@ class Brain:
         return chat_id, name
 
     def get_metadata(self):
-        """Get current chat metadata for UI toolbar."""
         exchanges = len(self.history) // 2 if self.history else 0
 
         # Get last activity timestamp
@@ -261,7 +261,6 @@ class Brain:
         }
 
     def _format_time_display(self, ts):
-        """Format timestamp for display (HH:MM, local time)."""
         if not ts:
             return ""
         try:
@@ -279,16 +278,9 @@ class Brain:
             return str(ts)[:5] if isinstance(ts, str) else ""
 
     def get_history(self):
-        """Return full history for rendering."""
         return self.history
 
     def send_message(self, user_input):
-        """
-        Send user message, get response, save to DB.
-
-        Returns:
-            tuple: (response_text, model_ts)
-        """
         user_ts = datetime.now(timezone.utc)
 
         try:
@@ -325,19 +317,13 @@ class Brain:
             return f"[bold red]Error: Something went wrong: {e}[/bold red]", None
 
     def close(self):
-        """Close database connection and clean up provider."""
         if self.provider:
             self.provider.close()
         self.conn.close()
 
-    # --- Command handling (returns action dict or None) ---
-
     def handle_command(self, cmd_line):
-        """
-        Handle slash commands. Returns dict with action info or None.
-
-        Commands: help, exit, save, copy, export, status, timestamp, animation, clear, model, refresh_model
-        """
+        # Handle slash commands. Returns dict with action info or None.
+        # Commands: help, exit, save, copy, export, status, timestamp, animation, clear, model, refresh_model
         parts = cmd_line.strip().split()
         cmd = parts[0].lower() if parts else ""
         args = parts[1:]

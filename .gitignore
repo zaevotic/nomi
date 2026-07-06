@@ -13,6 +13,7 @@ venv/
 
 #Chat logs and saved sessions
 chats/*.json
+exports
 
 #Environment variables
 .env

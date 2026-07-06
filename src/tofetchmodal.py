@@ -1,3 +1,5 @@
+# Might remove this later
+
 import google.generativeai as genai, sqlite3
 from dotenv import load_dotenv
 import os

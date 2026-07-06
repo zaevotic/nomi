@@ -99,6 +99,7 @@ def get_config():
                 "show_timestamps": True,
                 "animation_enabled": True,
                 "character_limit": 4000,
+                "mode": "cli",
             }
         else:
             if "show_timestamps" not in cfg["ui"]:
@@ -107,6 +108,8 @@ def get_config():
                 cfg["ui"]["animation_enabled"] = True
             if "character_limit" not in cfg["ui"]:
                 cfg["ui"]["character_limit"] = 4000
+            if "mode" not in cfg["ui"]:
+                cfg["ui"]["mode"] = "cli"
         # Ensure provider and api_keys exist
         if "provider" not in cfg:
             cfg["provider"] = "gemini"
@@ -123,6 +126,7 @@ def get_config():
                 "show_timestamps": True,
                 "animation_enabled": True,
                 "character_limit": 4000,
+                "mode": "cli",
             },
             "api_keys": {}
         }
@@ -214,7 +218,8 @@ def edit_ui_settings():
         settings_text = ""
         settings_text += f"[cyan]Timestamps:[/]           [{ 'green' if ui_cfg.get('show_timestamps', True) else 'red' }]{ui_cfg.get('show_timestamps', True)}[/]\n"
         settings_text += f"[cyan]Animations:[/]           [{ 'green' if ui_cfg.get('animation_enabled', True) else 'red' }]{ui_cfg.get('animation_enabled', True)}[/]\n"
-        settings_text += f"[cyan]Character Limit:[/]      [yellow]{ui_cfg.get('character_limit', 4000)}[/]"
+        settings_text += f"[cyan]Character Limit:[/]      [yellow]{ui_cfg.get('character_limit', 4000)}[/]\n"
+        settings_text += f"[cyan]UI Mode:[/]              [yellow]{ui_cfg.get('mode', 'cli').upper()}[/]"
 
         console.print(Panel(settings_text, title="[bold]Current Settings[/]", border_style="blue"))
         console.print("")
@@ -225,6 +230,7 @@ def edit_ui_settings():
                 Choice(title="Toggle Timestamps", description="Show/hide message timestamps", value="Toggle Timestamps"),
                 Choice(title="Toggle Animations", description="Enable/disable loading spinner", value="Toggle Animations"),
                 Choice(title="Set Character Limit", description="Change maximum input length", value="Set Character Limit"),
+                Choice(title="UI Mode", description="Switch between CLI and TUI", value="UI Mode"),
                 Choice(title="Back", description="Return to main menu", value="Back")
             ],
             qmark="▶",
@@ -265,6 +271,33 @@ def edit_ui_settings():
                 console.print(f"[green]Character limit set to {int(new_val)}[/]")
             else:
                 console.print("[red]Invalid number, keeping current value.[/]")
+
+        elif choice == "UI Mode":
+            current = ui_cfg.get("mode", "cli")
+            console.print(f"\n[cyan]Current UI mode:[/] [bold]{current.upper()}[/]")
+            new_mode = questionary.select(
+                "Select UI mode:",
+                choices=[
+                    Choice(title="CLI", description="Classic command-line interface", value="cli"),
+                    Choice(title="TUI", description="Modern Textual terminal UI", value="tui")
+                ],
+                qmark="▶",
+                style=custom_style
+            ).ask()
+            if new_mode and new_mode != current:
+                # Check if Textual is available for TUI
+                if new_mode == "tui":
+                    try:
+                        import textual
+                    except ImportError:
+                        console.print("[red]Textual is not installed.[/]")
+                        console.print("[yellow]Install it with: pip install textual[/]")
+                        console.input("\n[dim]Press Enter to continue...[/]")
+                        return None
+                edit_config(ui={"mode": new_mode})
+                console.print(f"[green]UI mode set to {new_mode.upper()}[/]")
+                console.print("[yellow]Note: Change takes effect on next chat session.[/]")
+                time.sleep(1)
 
 def settings_menu():
     """Settings submenu - all configuration in one place."""
@@ -331,7 +364,7 @@ def settings_menu():
             show_plugins()
 
 def _model_selection_menu():
-    """Model selection with provider support (Gemini, OpenRouter, etc)."""
+    """Model & provider selection - pick a live provider, then search/select a model."""
     while True:
         clear_console()
         console.print(BANNER)
@@ -340,133 +373,175 @@ def _model_selection_menu():
         current_model = cfg.get("default_model", "Not set")
         current_provider = cfg.get("provider", "gemini")
 
-        # Show current settings
         console.print(Panel(
-            f"[cyan]Current Model:[/] [bold]{current_model}[/]\n"
-            f"[cyan]Current Provider:[/] [bold]{current_provider}[/]",
+            f"[cyan]Provider:[/] [bold]{current_provider}[/]   "
+            f"[cyan]Model:[/] [bold]{current_model}[/]",
             title="Current Selection",
             border_style="blue"
         ))
         console.print("")
 
-        choice = questionary.select(
-            "Select a model provider:",
+        # Only show providers that are actually implemented.
+        # Stubs (openrouter / openai / anthropic) are listed as info-only.
+        provider_choice = questionary.select(
+            "Step 1 — Select a provider:",
             choices=[
                 Choice(
-                    title="Gemini (Google)",
-                    description="Use Google Gemini models",
+                    title=(
+                        [("fg:ansigreen bold", "\u25cf"), ("", " Gemini (Google)")]
+                        if current_provider == "gemini"
+                        else "  Gemini (Google)"
+                    ),
+                    description="Google Gemini models — requires GEMINI_API_KEY",
                     value="gemini"
                 ),
                 Choice(
-                    title="OpenRouter",
-                    description="Use OpenRouter API for multiple models",
-                    value="openrouter"
+                    title=(
+                        [("fg:ansigreen bold", "\u25cf"), ("", " Local (Ollama)")]
+                        if current_provider == "local"
+                        else "  Local (Ollama)"
+                    ),
+                    description="Locally running models via Ollama — no API key required",
+                    value="local"
                 ),
                 Choice(
-                    title="OpenAI ChatGPT",
-                    description="Use OpenAI GPT models",
-                    value="openai"
+                    title="  OpenRouter  (coming soon)",
+                    description="Not yet implemented",
+                    value="_coming_soon"
                 ),
                 Choice(
-                    title="Anthropic Claude",
-                    description="Use Anthropic Claude models",
-                    value="anthropic"
+                    title="  OpenAI  (coming soon)",
+                    description="Not yet implemented",
+                    value="_coming_soon"
+                ),
+                Choice(
+                    title="  Anthropic  (coming soon)",
+                    description="Not yet implemented",
+                    value="_coming_soon"
                 ),
                 Choice(
                     title="Back",
                     description="Return to settings",
                     value="Back"
-                )
+                ),
             ],
             qmark="▶",
             style=custom_style
         ).ask()
 
-        if choice == "Back" or choice is None:
+        if provider_choice == "Back" or provider_choice is None:
             break
 
-        # Save provider selection
-        edit_config(provider=choice)
-        console.print(f"[green]✓ Provider set to {choice}[/]")
-        time.sleep(1)
+        if provider_choice == "_coming_soon":
+            console.print(Panel(
+                "[yellow]This provider isn't implemented yet.\n"
+                "Only [bold]Gemini[/] and [bold]Local (Ollama)[/] are available right now.[/]",
+                border_style="yellow"
+            ))
+            console.input("\n[dim]Press Enter to continue...[/]")
+            continue
 
-        # Now allow model selection within that provider
-        if choice == "gemini":
-            _select_gemini_model()
-        elif choice == "openrouter":
-            _select_openrouter_model()
-        elif choice == "openai":
-            _select_openai_model()
-        elif choice == "anthropic":
-            _select_anthropic_model()
+        # Persist provider immediately
+        edit_config(provider=provider_choice)
 
-def _select_gemini_model():
-    """Select from available Gemini models."""
-    from src.tofetchmodal import generate_models_list
-    models = generate_models_list
+        # Step 2: fetch models and show searchable picker
+        _pick_model_for_provider(provider_choice)
+
+def _pick_model_for_provider(provider: str) -> None:
+    """
+    Step 2 of model selection: fetch the model list for the given provider
+    and show a searchable autocomplete prompt.
+
+    Typing narrows the list in real time; leaving the field empty lists all
+    models. The currently selected model is shown at the top of the list.
+    """
+    clear_console()
+    console.print(BANNER)
+
+    # --- Fetch model list ---------------------------------------------------
+    models: list[str] = []
+    label = provider.title()
+
+    if provider == "gemini":
+        try:
+            from src.tofetchmodal import generate_models_list
+            models = list(generate_models_list)
+            label = "Gemini"
+        except Exception as e:
+            console.print(f"[red]Could not load Gemini models: {e}[/]")
+            console.input("\n[dim]Press Enter to continue...[/]")
+            return
+
+    elif provider == "local":
+        console.print("[dim]Querying Ollama for available models...[/]")
+        try:
+            from src.providers.local import LocalProvider
+            cfg = get_config()
+            p = LocalProvider(cfg, "")
+            models = p.get_available_models()
+            label = "Local (Ollama)"
+        except ImportError:
+            console.print(Panel(
+                "[red]The 'ollama' package is not installed.\n\n"
+                "Install it with:[/]\n[bold]pip install ollama[/]",
+                title="[bold]Ollama Not Installed[/]",
+                border_style="red"
+            ))
+            console.input("\n[dim]Press Enter to continue...[/]")
+            return
+        except Exception as e:
+            console.print(Panel(
+                f"[yellow]Could not reach Ollama server.\n\n"
+                f"Make sure Ollama is running:[/]\n[bold]ollama serve[/]\n\n"
+                f"[dim]Error: {e}[/]",
+                title="[bold]Ollama Unreachable[/]",
+                border_style="yellow"
+            ))
+            console.input("\n[dim]Press Enter to continue...[/]")
+            return
 
     if not models:
-        console.print("[yellow]No Gemini models available.[/]")
+        console.print(f"[yellow]No models found for {label}.[/]")
         console.input("\n[dim]Press Enter to continue...[/]")
         return
 
+    # --- Build display -------------------------------------------------------
     current_model = get_config().get("default_model", "")
-    choices = []
-    for model in models:
-        prefix = "[green]✓[/] " if model == current_model else "  "
-        choices.append(f"{prefix}{model}")
-    choices.append("Back")
 
-    selected = questionary.select(
-        "Select Gemini model:",
-        choices=choices,
-        qmark="▶",
-        style=custom_style
+    # Put the currently active model first so it shows up immediately
+    ordered = []
+    if current_model in models:
+        ordered.append(current_model)
+    for m in models:
+        if m != current_model:
+            ordered.append(m)
+
+    console.print(Panel(
+        f"[cyan]Provider:[/] [bold]{label}[/]   "
+        f"[cyan]Active model:[/] [bold]{current_model or 'none'}[/]\n\n"
+        "[dim]Start typing to filter \u2014 press Tab/Enter to select[/]",
+        title="Step 2 \u2014 Choose a model",
+        border_style="blue"
+    ))
+    console.print("")
+
+    selected = questionary.autocomplete(
+        "Search or select a model:",
+        choices=ordered,
+        default=current_model if current_model in ordered else "",
+        match_middle=True,
+        qmark="\u25b6",
+        style=custom_style,
     ).ask()
 
-    if selected and selected != "Back":
-        # Extract model name
-        model_name = selected.replace("[green]✓[/] ", "").strip()
-        edit_config(model=model_name)
-        console.print(f"[green]✓ Model set to {model_name}[/]")
-        time.sleep(1)
-
-def _select_openrouter_model():
-    """Placeholder for OpenRouter model selection."""
-    console.print(Panel(
-        "[yellow]OpenRouter integration coming soon!\n\n"
-        "You'll be able to:\n"
-        "• Enter OpenRouter API key\n"
-        "• Browse available models\n"
-        "• Select and switch models[/]",
-        title="[bold]OpenRouter[/]",
-        border_style="yellow"
-    ))
-    console.input("\n[dim]Press Enter to continue...[/]")
-
-def _select_openai_model():
-    """Placeholder for OpenAI model selection."""
-    console.print(Panel(
-        "[yellow]OpenAI integration coming soon!\n\n"
-        "You'll be able to:\n"
-        "• Enter OpenAI API key\n"
-        "• Select GPT model[/]",
-        title="[bold]OpenAI[/]",
-        border_style="yellow"
-    ))
-    console.input("\n[dim]Press Enter to continue...[/]")
-
-def _select_anthropic_model():
-    """Placeholder for Anthropic model selection."""
-    console.print(Panel(
-        "[yellow]Anthropic Claude integration coming soon!\n\n"
-        "You'll be able to:\n"
-        "• Enter Anthropic API key\n"
-        "• Select Claude model[/]",
-        title="[bold]Anthropic[/]",
-        border_style="yellow"
-    ))
-    console.input("\n[dim]Press Enter to continue...[/]")
+    if selected and selected.strip():
+        chosen = selected.strip()
+        if chosen not in models:
+            # User typed something not in the list — warn but allow
+            console.print(f"[yellow]'{chosen}' is not in the fetched list. Saving anyway.[/]")
+        edit_config(model=chosen)
+        console.print(f"\n[green]\u2713 Provider set to [bold]{provider}[/], model set to [bold]{chosen}[/][/]")
+        time.sleep(1.2)
 
 def _api_config_menu():
     """API configuration for different providers - writes to .env file."""
@@ -482,9 +557,11 @@ def _api_config_menu():
         has_openrouter = bool(os.getenv("OPENROUTER_API_KEY"))
         has_openai = bool(os.getenv("OPENAI_API_KEY"))
         has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
         status_text = ""
         status_text += f"[cyan]Gemini:[/] {'[green]✓ Set[/]' if has_gemini else '[red]✗ Not set[/]'}\n"
+        status_text += f"[cyan]Ollama (Local):[/] [green]No key required[/] [dim](host: {ollama_host})[/]\n"
         status_text += f"[cyan]OpenRouter:[/] {'[green]✓ Set[/]' if has_openrouter else '[yellow]Not set[/]'}\n"
         status_text += f"[cyan]OpenAI:[/] {'[green]✓ Set[/]' if has_openai else '[yellow]Not set[/]'}\n"
         status_text += f"[cyan]Anthropic:[/] {'[green]✓ Set[/]' if has_anthropic else '[yellow]Not set[/]'}\n"
@@ -503,6 +580,11 @@ def _api_config_menu():
                     title="Set Gemini API key",
                     description="Google Gemini - writes GEMINI_API_KEY to .env",
                     value="Gemini"
+                ),
+                Choice(
+                    title="Set Ollama host",
+                    description="Local Ollama server URL (default: http://localhost:11434)",
+                    value="Ollama"
                 ),
                 Choice(
                     title="Set OpenRouter API key",
@@ -531,6 +613,24 @@ def _api_config_menu():
 
         if choice == "Back" or choice is None:
             break
+
+        if choice == "Ollama":
+            # Special handling: Ollama doesn't need an API key, just a host URL
+            current_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            console.print(f"\n[cyan]Current Ollama host:[/] [bold]{current_host}[/]")
+            console.print("[dim]Leave blank to keep the current value.[/]\n")
+            new_host = questionary.text(
+                "Ollama host URL:",
+                default=current_host
+            ).ask()
+            if new_host and new_host.strip() and new_host.strip() != current_host:
+                _set_env_var("OLLAMA_HOST", new_host.strip())
+                load_dotenv(override=True)
+                console.print(f"[green]✓ Ollama host saved to .env[/]")
+            else:
+                console.print("[dim]No change.[/]")
+            time.sleep(1)
+            continue
 
         # Prompt for API key
         env_var_name = f"{choice.upper()}_API_KEY"
@@ -841,13 +941,19 @@ def delete_chat():
 
     conn.close()
 
-def run_chat(chat_name, chat_id=None):
+def run_chat(chat_name, chat_id=None, ui_mode=None):
     """Run a chat session in the current terminal. Returns when user exits."""
     from src.brain import Brain
     from src.chat_ui import ChatRenderer
     from rich.theme import Theme
+    from prompt_toolkit.styles import Style
 
     cfg = get_config()
+    is_tui = False
+    # Determine UI mode if not provided
+    if ui_mode is None:
+        ui_mode = cfg.get("ui", {}).get("mode", "cli")
+
     # If chat_id not provided, get or create it
     if chat_id is None:
         conn = sqlite3.connect(DB_NAME)
@@ -858,12 +964,25 @@ def run_chat(chat_name, chat_id=None):
     # Create brain (logic layer) - loads history but NOT model yet
     brain = Brain(cfg, chat_name=chat_name, chat_id=chat_id)
 
-    # Create UI renderer with code theme
-    code_theme = Theme({
-        "markdown.code": "on #1e1e1e #f8f8f2",
-        "markdown.code_block": "on #1e1e1e #f8f8f2",
-    })
-    renderer = ChatRenderer(code_theme=code_theme)
+    # Choose renderer based on UI mode
+    if ui_mode == "tui":
+        try:
+            from src.tui_renderer import TUIChatRenderer, HelpScreen
+            renderer = TUIChatRenderer()
+            renderer.start()
+            is_tui = True
+        except ImportError:
+            console.print("[red]Textual not installed. Falling back to CLI.[/]")
+            console.input("\n[dim]Press Enter to continue...[/]")
+            renderer = ChatRenderer(code_theme=Theme({
+                "markdown.code": "on #1e1e1e #f8f8f2",
+                "markdown.code_block": "on #1e1e1e #f8f8f2",
+            }))
+    else:
+        renderer = ChatRenderer(code_theme=Theme({
+            "markdown.code": "on #1e1e1e #f8f8f2",
+            "markdown.code_block": "on #1e1e1e #f8f8f2",
+        }))
 
     # Render chat history immediately (before model loading)
     for message in brain.get_history():
@@ -894,28 +1013,42 @@ def run_chat(chat_name, chat_id=None):
     loader_thread.start()
 
     # Show a spinner while waiting for model to load
-    spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-    frame_idx = 0
-    renderer.console.print("")  # ensure on fresh line
-
-    while not brain.is_model_loaded():
-        if brain.load_error:
-            renderer.console.print(f"[bold red]Failed to load model: {brain.load_error}[/bold red]")
-            renderer.console.input("\n[dim]Press Enter to return to main menu...[/]")
-            brain.close()  # cleanup db connection
-            return  # exit run_chat
-        frame = spinner_frames[frame_idx]
-        renderer.console.print(f"[red]{frame} Loading model...[/red]", end="\r")
-        frame_idx = (frame_idx + 1) % len(spinner_frames)
-        time.sleep(0.1)
-
-    # Clear spinner line and add blank line before input
-    renderer.console.print(" " * 40)  # clear the line
-    renderer.console.print("")  # blank line before input
+    if not is_tui:
+        spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        frame_idx = 0
+        renderer.console.print("")  # ensure on fresh line
+        while not brain.is_model_loaded():
+            if brain.load_error:
+                renderer.console.print(f"[bold red]Failed to load model: {brain.load_error}[/bold red]")
+                renderer.console.input("\n[dim]Press Enter to return to main menu...[/]")
+                brain.close()  # cleanup db connection
+                return
+            frame = spinner_frames[frame_idx]
+            renderer.console.print(f"[red]{frame} Loading model...[/red]", end="\r")
+            frame_idx = (frame_idx + 1) % len(spinner_frames)
+            time.sleep(0.1)
+        # Clear spinner line and add blank line before input
+        renderer.console.print(" " * 40)  # clear the line
+        renderer.console.print("")  # blank line before input
+    else:
+        renderer.show_status("Loading model...")
+        while not brain.is_model_loaded():
+            if brain.load_error:
+                renderer.show_error(f"Failed to load model: {brain.load_error}")
+                renderer.show_status("Press Enter to return to main menu...")
+                if is_tui:
+                    renderer.stop()
+                brain.close()
+                return
+            time.sleep(0.1)
+        renderer.show_status("")  # clear status
 
     # Start main chat loop with input prompt and status bar
     while True:
         chat_info = brain.get_metadata()
+        # For TUI, update renderer's chat_info for info bar
+        if is_tui:
+            renderer.chat_info = chat_info
         # Get user input
         user_input = renderer.get_input(chat_info).strip()
 
@@ -924,32 +1057,59 @@ def run_chat(chat_name, chat_id=None):
             result = brain.handle_command(user_input[1:])
             action = result.get("action")
 
-            if action == "exit":
-                renderer.console.print("")
-                renderer.console.print("[dim]Goodbye, human. See you later :)[/dim]")
-                break
-            elif action == "clear":
-                renderer.console.clear()
-            elif action == "help":
-                _show_help(renderer)
-            elif action == "message":
-                renderer.console.print(result.get("message", ""))
-                renderer.console.input("\n[dim]Press Enter to continue...[/]")
-            elif action == "status":
-                _show_status(renderer, result["data"])
-            elif action == "select_model":
-                _handle_model_switch(renderer, brain, result["models"])
-            elif action == "refresh_model":
-                _handle_refresh_model(renderer, brain)
+            if is_tui:
+                # TUI-specific command handling
+                if action == "exit":
+                    renderer.render_blank_line()
+                    renderer.show_status("Goodbye, human. See you later :)")
+                    break
+                elif action == "clear":
+                    # Clear the messages log
+                    renderer.app.call_from_thread(renderer.app.query_one("#messages").clear)
+                elif action == "help":
+                    # Show help screen
+                    renderer.app.call_from_thread(renderer.app.push_screen, HelpScreen())
+                elif action == "message":
+                    # Show command message in status bar
+                    renderer.show_status(result.get("message", ""))
+                elif action == "status":
+                    data = result["data"]
+                    status_str = f"Chat: {data['chat']} | Model: {data['model']} | Exchanges: {data['exchanges']} | Tokens: ~{data['tokens']} | Timestamps: {data['timestamps']}"
+                    renderer.show_status(status_str)
+                elif action == "select_model" or action == "refresh_model":
+                    renderer.show_status("Model switching not implemented in TUI yet")
+                else:
+                    renderer.show_status(f"Unknown command: /{user_input[1:]}")
+                renderer.render_blank_line()
+                continue
             else:
-                # Continue loop without extra output
-                pass
+                # CLI command handling (original)
+                if action == "exit":
+                    renderer.console.print("")
+                    renderer.console.print("[dim]Goodbye, human. See you later :)[/dim]")
+                    break
+                elif action == "clear":
+                    renderer.console.clear()
+                elif action == "help":
+                    _show_help(renderer)
+                elif action == "message":
+                    renderer.console.print(result.get("message", ""))
+                    renderer.console.input("\n[dim]Press Enter to continue...[/]")
+                elif action == "status":
+                    _show_status(renderer, result["data"])
+                elif action == "select_model":
+                    _handle_model_switch(renderer, brain, result["models"])
+                elif action == "refresh_model":
+                    _handle_refresh_model(renderer, brain)
+                else:
+                    # Continue loop without extra output
+                    pass
 
-            renderer.console.print("")
-            continue
+                renderer.console.print("")
+                continue
 
         # Normal message exchange
-        renderer.console.print("")
+        renderer.render_blank_line()
 
         response_text, model_ts = brain.send_message(user_input)
 
@@ -959,6 +1119,8 @@ def run_chat(chat_name, chat_id=None):
         # Separator
         renderer.render_separator()
 
+    if is_tui:
+        renderer.stop()
     brain.close()
 
 def _show_help(renderer):
@@ -1103,8 +1265,24 @@ def main_menu():
             chat_name = choose_chat()
             if chat_name is None:
                 continue
+            # Ask for UI mode
+            cfg = get_config()
+            current_mode = cfg.get("ui", {}).get("mode", "cli")
+            console.print("\n[bold]Select Interface:[/]")
+            ui_mode = questionary.select(
+                "Which interface to use?",
+                choices=[
+                    Choice(title="CLI", description="Classic command-line interface", value="cli"),
+                    Choice(title="TUI", description="Modern Textual terminal UI", value="tui")
+                ],
+                default=current_mode,
+                qmark="▶",
+                style=custom_style
+            ).ask()
+            if ui_mode is None:
+                continue  # User cancelled
             clear_console()
-            run_chat(chat_name)
+            run_chat(chat_name, ui_mode=ui_mode)
         if choice == "Rename Chat":
             rename_chat()
         if choice == "Delete Chat":

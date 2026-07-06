@@ -1,45 +1,13 @@
 #!/usr/bin/env python3
 
-# main file, links to terminal
-
 import os, yaml, json, sqlite3
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
-from rich.console import Console
-from src.brain import Brain
-from src.startup import Startup
 from src import menu
 
 DB_NAME = "nomi_memory.db"
 CHATS_DIR = "chats"
 CONFIG_PATH = "config.yaml"
-
-class Nomi:
-    def __init__(self):
-        load_dotenv()
-        self.console = Console()
-        self.CONFIG_PATH = CONFIG_PATH
-        # Load config with UI defaults applied (from menu.get_config)
-        self.config = menu.get_config()
-
-    # didn't use because shifted to separate terminal windows for chats
-
-    # @contextmanager
-    # def alternate_screen(self):
-    #     """
-    #     This is so that nomi can look like it's own instance
-    #     """
-    #     os.system("tput smcup")
-    #     os.system("clear")
-    #     try:
-    #         yield
-    #     finally:
-    #         os.system("clear")
-    #         os.system("tput rmcup")
-
-    def main(self):
-        Startup(config_path=CONFIG_PATH).run()
-        brain = Brain(self.config)
-        brain.chat()
 
 def migrate_chats():
     """
@@ -109,6 +77,7 @@ def migrate_db():
     conn.close()
 
 if __name__ == "__main__":
+    load_dotenv()
 
     if not os.path.exists(DB_NAME):
         # Create DB and tables on first run
